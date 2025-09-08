@@ -6,13 +6,8 @@ logs/
 *.backup
 dns-backup-*.tar.gz
 
-# Docker volumes (if using bind mounts)
-data/
-volumes/
-
-# Environment overrides
-.env.local
-.env.override
+# Deployment configuration (contains sensitive info)
+tools/config/deploy.config
 
 # IDE files
 .vscode/

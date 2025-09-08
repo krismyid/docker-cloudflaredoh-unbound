@@ -35,8 +35,8 @@ check_docker() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
-        error "Docker Compose is not installed or not in PATH"
+    if ! docker compose version &> /dev/null; then
+        error "Docker Compose is not available"
         exit 1
     fi
 }
@@ -57,7 +57,7 @@ start() {
         fi
     fi
     
-    docker-compose up -d
+    docker compose up -d
     log "Services started successfully"
     
     # Wait for services to be healthy
@@ -70,7 +70,7 @@ start() {
 stop() {
     log "Stopping DNS infrastructure..."
     cd "$SCRIPT_DIR"
-    docker-compose down
+    docker compose down
     log "Services stopped successfully"
 }
 
@@ -88,11 +88,11 @@ status() {
     cd "$SCRIPT_DIR"
     
     echo -e "\n${BLUE}=== Container Status ===${NC}"
-    docker-compose ps
+    docker compose ps
     
     echo -e "\n${BLUE}=== Health Checks ===${NC}"
-    docker-compose exec -T cloudflared nslookup google.com 127.0.0.1 2>/dev/null || warn "Cloudflared health check failed"
-    docker-compose exec -T unbound drill @127.0.0.1 google.com 2>/dev/null || warn "Unbound health check failed"
+    docker compose exec -T cloudflared nslookup google.com 127.0.0.1 2>/dev/null || warn "Cloudflared health check failed"
+    docker compose exec -T unbound drill @127.0.0.1 google.com 2>/dev/null || warn "Unbound health check failed"
     
     echo -e "\n${BLUE}=== Network Test ===${NC}"
     if command -v dig &> /dev/null; then
@@ -106,9 +106,9 @@ status() {
 logs() {
     cd "$SCRIPT_DIR"
     if [ $# -eq 1 ]; then
-        docker-compose logs -f "$1"
+        docker compose logs -f "$1"
     else
-        docker-compose logs -f
+        docker compose logs -f
     fi
 }
 
@@ -144,8 +144,8 @@ update() {
     log "Updating containers..."
     cd "$SCRIPT_DIR"
     
-    docker-compose pull
-    docker-compose up -d
+    docker compose pull
+    docker compose up -d
     
     log "Containers updated successfully"
     status

@@ -1,15 +1,60 @@
 #!/bin/bash
 
 # Remote DNS Infrastructure Deployment Script
-# Deploys to 'applebun' server via SSH
+# Configurable deployment to remote servers
 
 set -e
 
-# Configuration
-REMOTE_HOST="applebun"
-REMOTE_USER="krismyid"
-REMOTE_DIR="/home/krismyid/docker-cloudflaredoh-unbound"
-LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/config/deploy.config"
+
+# Load configuration
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+else
+    echo "ERROR: Configuration file not found: $CONFIG_FILE"
+    echo "Please copy tools/config/deploy.config.template to tools/config/deploy.config and customize it."
+    exit 1
+fi
+
+# Validate required configuration
+if [[ -z "$REMOTE_HOST" || -z "$REMOTE_USER" || -z "$REMOTE_DIR" ]]; then
+    echo "ERROR: Missing required configuration. Please check deploy.config"
+    echo "Required: REMOTE_HOST, REMOTE_USER, REMOTE_DIR"
+    exit 1
+fi
+
+# Default values
+DOCKER_COMPOSE_CMD="${DOCKER_COMPOSE_CMD:-docker compose}"
+SSH_PORT="${SSH_PORT:-22}"
+BACKUP_BEFORE_DEPLOY="${BACKUP_BEFORE_DEPLOY:-true}"
+AUTO_START_SERVICES="${AUTO_START_SERVICES:-true}"
+CHECK_DEPENDENCIES="${CHECK_DEPENDENCIES:-true}"
+
+# Build SSH command
+SSH_CMD="ssh"
+if [[ -n "$SSH_KEY" ]]; then
+    SSH_CMD="$SSH_CMD -i $SSH_KEY"
+fi
+if [[ "$SSH_PORT" != "22" ]]; then
+    SSH_CMD="$SSH_CMD -p $SSH_PORT"
+fi
+if [[ -n "$SSH_OPTIONS" ]]; then
+    SSH_CMD="$SSH_CMD $SSH_OPTIONS"
+fi
+SSH_CMD="$SSH_CMD $REMOTE_USER@$REMOTE_HOST"
+
+# Build rsync command  
+RSYNC_CMD="rsync -avz --exclude='.git' --exclude='tools'"
+if [[ -n "$SSH_KEY" ]]; then
+    RSYNC_CMD="$RSYNC_CMD -e 'ssh -i $SSH_KEY'"
+fi
+if [[ "$SSH_PORT" != "22" ]]; then
+    RSYNC_CMD="$RSYNC_CMD -e 'ssh -p $SSH_PORT'"
+fi
+
+LOCAL_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,30 +77,37 @@ error() {
 
 # Test SSH connection
 test_connection() {
-    log "Testing SSH connection to $REMOTE_HOST..."
-    if ssh "$REMOTE_HOST" "echo 'SSH connection successful'" > /dev/null 2>&1; then
+    log "Testing SSH connection to $REMOTE_USER@$REMOTE_HOST..."
+    if $SSH_CMD "echo 'SSH connection successful'" > /dev/null 2>&1; then
         log "SSH connection to $REMOTE_HOST successful"
     else
         error "Cannot connect to $REMOTE_HOST via SSH"
+        echo "Command used: $SSH_CMD"
         exit 1
     fi
 }
 
 # Deploy files to remote server
 deploy() {
-    log "Deploying DNS infrastructure to $REMOTE_HOST..."
+    log "Deploying DNS infrastructure to $REMOTE_USER@$REMOTE_HOST..."
+    
+    # Create backup if enabled
+    if [[ "$BACKUP_BEFORE_DEPLOY" == "true" ]]; then
+        log "Creating backup on remote server..."
+        $SSH_CMD "cd $REMOTE_DIR 2>/dev/null && tar -czf dns-backup-\$(date +%Y%m%d-%H%M%S).tar.gz * 2>/dev/null || true" || true
+    fi
     
     # Create remote directory
-    ssh "$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
+    $SSH_CMD "mkdir -p $REMOTE_DIR"
     
     # Copy files
     log "Copying configuration files..."
-    rsync -avz --exclude='.git' \
+    eval "$RSYNC_CMD" \
         "$LOCAL_DIR/" \
-        "$REMOTE_HOST:$REMOTE_DIR/"
+        "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
     
-    # Make scripts executable
-    ssh "$REMOTE_HOST" "chmod +x $REMOTE_DIR/manage.sh $REMOTE_DIR/deploy.sh"
+    # Make scripts executable on remote
+    $SSH_CMD "chmod +x $REMOTE_DIR/manage.sh"
     
     log "Files deployed successfully to $REMOTE_HOST:$REMOTE_DIR"
 }
@@ -64,7 +116,7 @@ deploy() {
 start_remote() {
     log "Starting DNS services on $REMOTE_HOST..."
     
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh start"
+    $SSH_CMD "cd $REMOTE_DIR && ./manage.sh start"
     
     log "Services started on $REMOTE_HOST"
 }
@@ -73,7 +125,7 @@ start_remote() {
 stop_remote() {
     log "Stopping DNS services on $REMOTE_HOST..."
     
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh stop"
+    $SSH_CMD "cd $REMOTE_DIR && ./manage.sh stop"
     
     log "Services stopped on $REMOTE_HOST"
 }
@@ -82,7 +134,7 @@ stop_remote() {
 status_remote() {
     log "Checking status on $REMOTE_HOST..."
     
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh status"
+    $SSH_CMD "cd $REMOTE_DIR && ./manage.sh status"
 }
 
 # Show logs from remote server
@@ -90,9 +142,9 @@ logs_remote() {
     log "Fetching logs from $REMOTE_HOST..."
     
     if [ $# -eq 1 ]; then
-        ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh logs $1"
+        $SSH_CMD "cd $REMOTE_DIR && ./manage.sh logs $1"
     else
-        ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh logs"
+        $SSH_CMD "cd $REMOTE_DIR && ./manage.sh logs"
     fi
 }
 
@@ -100,14 +152,14 @@ logs_remote() {
 test_remote() {
     log "Testing DNS performance on $REMOTE_HOST..."
     
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh test"
+    $SSH_CMD "cd $REMOTE_DIR && ./manage.sh test"
 }
 
 # Install Docker on remote server if needed
 install_docker_remote() {
     log "Installing Docker on $REMOTE_HOST..."
     
-    ssh "$REMOTE_HOST" "bash -s" << 'ENDSSH'
+    $SSH_CMD "bash -s" << 'ENDSSH'
 # Update package index
 sudo apt update
 
@@ -143,9 +195,9 @@ ENDSSH
 check_docker_remote() {
     log "Checking Docker installation on $REMOTE_HOST..."
     
-    if ssh "$REMOTE_HOST" "command -v docker &> /dev/null && command -v docker-compose &> /dev/null"; then
+    if $SSH_CMD "command -v docker &> /dev/null && docker compose version &> /dev/null"; then
         log "Docker and Docker Compose are installed on $REMOTE_HOST"
-        ssh "$REMOTE_HOST" "docker --version && docker-compose --version"
+        $SSH_CMD "docker --version && docker compose version"
     else
         warn "Docker or Docker Compose not found on $REMOTE_HOST"
         read -p "Install Docker on remote server? (y/N): " -n 1 -r
@@ -164,7 +216,7 @@ update_remote() {
     log "Updating deployment on $REMOTE_HOST..."
     
     deploy
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && ./manage.sh update"
+    $SSH_CMD "cd $REMOTE_DIR && ./manage.sh update"
     
     log "Remote deployment updated"
 }
@@ -172,16 +224,20 @@ update_remote() {
 # Full deployment (deploy + start)
 full_deploy() {
     test_connection
-    check_docker_remote
+    if [[ "$CHECK_DEPENDENCIES" == "true" ]]; then
+        check_docker_remote
+    fi
     deploy
-    start_remote
-    status_remote
+    if [[ "$AUTO_START_SERVICES" == "true" ]]; then
+        start_remote
+        status_remote
+    fi
 }
 
 # SSH into remote server
 ssh_remote() {
     log "Opening SSH session to $REMOTE_HOST..."
-    ssh "$REMOTE_HOST" -t "cd $REMOTE_DIR && bash"
+    $SSH_CMD -t "cd $REMOTE_DIR && bash"
 }
 
 # Show help
@@ -206,8 +262,10 @@ show_help() {
     echo "  help         Show this help message"
     echo ""
     echo "Configuration:"
-    echo "  Remote Host: $REMOTE_HOST"
+    echo "  Remote Host: $REMOTE_USER@$REMOTE_HOST"
     echo "  Remote Dir:  $REMOTE_DIR"
+    echo "  SSH Port:    $SSH_PORT"
+    echo "  Config File: $CONFIG_FILE"
     echo ""
     echo "Examples:"
     echo "  $0 full         # Complete deployment"

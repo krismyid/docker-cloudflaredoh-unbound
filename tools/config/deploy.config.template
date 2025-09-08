@@ -1,0 +1,24 @@
+# Deployment Configuration Template
+# Copy this file to 'deploy.config' and customize for your environment
+
+# Remote server configuration
+REMOTE_HOST="your-server-hostname"
+REMOTE_USER="your-username" 
+REMOTE_DIR="/home/your-username/docker-cloudflaredoh-unbound"
+
+# SSH configuration (optional)
+SSH_KEY=""                    # Path to SSH private key (if not using default)
+SSH_PORT="22"                 # SSH port (default: 22)
+SSH_OPTIONS=""                # Additional SSH options
+
+# Docker configuration
+DOCKER_COMPOSE_CMD="docker compose"  # or "docker-compose" for older versions
+
+# Deployment options
+BACKUP_BEFORE_DEPLOY="true"   # Create backup before deployment
+AUTO_START_SERVICES="true"    # Automatically start services after deployment
+CHECK_DEPENDENCIES="true"     # Check for Docker/dependencies before deployment
+
+# Notification settings (optional)
+SLACK_WEBHOOK=""              # Slack webhook URL for notifications
+DISCORD_WEBHOOK=""            # Discord webhook URL for notifications

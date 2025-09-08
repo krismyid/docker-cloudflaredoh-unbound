@@ -14,6 +14,23 @@ Cloudflared Container
 Internet (1.1.1.1 via HTTPS)
 ```
 
+## Project Structure
+
+```
+├── docker-compose.yml          # Docker services definition
+├── unbound.conf               # Unbound DNS server configuration
+├── manage.sh                  # Local service management script
+├── tools/                     # Deployment and management tools
+│   ├── dns.sh                # Main deployment tool wrapper
+│   ├── deploy.sh             # Remote deployment script
+│   ├── setup.sh              # Configuration setup script
+│   └── config/               # Configuration files
+│       ├── deploy.config.template  # Configuration template
+│       └── deploy.config     # Your configuration (gitignored)
+├── README.md                  # This file
+└── flow.excalidraw           # Architecture diagram
+```
+
 ## Components
 
 ### Cloudflared Container
@@ -30,31 +47,40 @@ Internet (1.1.1.1 via HTTPS)
 
 ## Quick Start
 
-1. **Clone and navigate to directory**
+1. **Setup configuration**
    ```bash
-   cd /home/krismyid/private/docker-cloudflaredoh-unbound
-   ```
-
-2. **Start the services**
-   ```bash
-   docker-compose up -d
-   ```
-
-3. **Check service status**
-   ```bash
-   docker-compose ps
-   docker-compose logs -f
-   ```
-
-4. **Test DNS resolution**
-   ```bash
-   # Test from host
-   nslookup google.com 127.0.0.1
-   dig @127.0.0.1 cloudflare.com
+   # Interactive configuration setup
+   tools/dns.sh setup interactive
    
-   # Test with specific record types
-   dig @127.0.0.1 TXT cloudflare.com
-   dig @127.0.0.1 AAAA google.com
+   # Or manually copy and edit template
+   cp tools/config/deploy.config.template tools/config/deploy.config
+   # Edit tools/config/deploy.config with your server details
+   ```
+
+2. **Test connection**
+   ```bash
+   tools/dns.sh setup test
+   ```
+
+3. **Deploy to remote server**
+   ```bash
+   # Full deployment (copies files + starts services)
+   tools/dns.sh deploy full
+   
+   # Or step by step
+   tools/dns.sh deploy deploy    # Copy files only
+   tools/dns.sh deploy start     # Start services
+   ```
+
+4. **Check service status**
+   ```bash
+   tools/dns.sh deploy status
+   ```
+
+5. **Test DNS resolution**
+   ```bash
+   # Test from remote server
+   tools/dns.sh deploy test
    ```
 
 ## Configuration
@@ -64,75 +90,49 @@ Internet (1.1.1.1 via HTTPS)
 - **Cloudflared IP**: `172.20.0.2`
 - **Unbound IP**: `172.20.0.3`
 
-### System DNS Configuration (Optional)
+### Deployment Configuration
+Edit `tools/config/deploy.config` to customize:
+- **Remote server details** (hostname, user, directory)
+- **SSH configuration** (key, port, options)
+- **Deployment options** (backup, auto-start, dependency checks)
 
-To use this as your system DNS resolver:
+## Management Commands
 
-**Ubuntu/Debian:**
+### Setup and Testing
 ```bash
-# Edit resolv.conf
-sudo nano /etc/systemd/resolved.conf
+# Interactive configuration
+tools/dns.sh setup interactive
 
-# Add:
-[Resolve]
-DNS=127.0.0.1
-#FallbackDNS=
-#Domains=
-#LLMNR=no
-#MulticastDNS=no
-#DNSSEC=no
-#DNSOverTLS=no
-#Cache=no
-#DNSStubListener=yes
+# Test SSH connection
+tools/dns.sh setup test
 
-# Restart resolved
-sudo systemctl restart systemd-resolved
+# Validate configuration
+tools/dns.sh setup validate
 ```
 
-**Manual resolv.conf:**
+### Deployment
 ```bash
-# Backup current config
-sudo cp /etc/resolv.conf /etc/resolv.conf.backup
+# Full deployment (recommended)
+tools/dns.sh deploy full
 
-# Set new nameserver
-echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
+# Individual steps
+tools/dns.sh deploy deploy    # Copy files only
+tools/dns.sh deploy start     # Start services
+tools/dns.sh deploy stop      # Stop services
+tools/dns.sh deploy restart   # Restart services
 ```
 
-## Monitoring and Troubleshooting
-
-### Check Service Health
+### Monitoring
 ```bash
-# View container status
-docker-compose ps
+# Check service status
+tools/dns.sh deploy status
 
-# Check logs
-docker-compose logs cloudflared
-docker-compose logs unbound
+# View logs
+tools/dns.sh deploy logs
+tools/dns.sh deploy logs unbound
 
-# Follow logs in real-time
-docker-compose logs -f
-```
-
-### Performance Testing
-```bash
-# Test query response time
-time dig @127.0.0.1 google.com
-
-# Test cache performance (should be faster on second query)
-time dig @127.0.0.1 example.com
-time dig @127.0.0.1 example.com
-```
-
-### Network Testing
-```bash
-# Test cloudflared directly
-nslookup google.com 127.0.0.1 -port=5353
-
-# Test unbound
-nslookup google.com 127.0.0.1
-
-# Verify DoH is working
-docker exec cloudflared-doh nslookup google.com 127.0.0.1
+# Test DNS performance
+tools/dns.sh deploy test
 ```
 
 ## Security Features
@@ -151,6 +151,8 @@ docker exec cloudflared-doh nslookup google.com 127.0.0.1
 - **Optimized Cache Sizes**: Tuned for typical home/small office use
 
 ## Customization
+
+## Advanced Configuration
 
 ### Modify Cloudflared Upstream
 Edit `docker-compose.yml` to change DoH providers:
@@ -172,59 +174,38 @@ local-zone: "mylocal.domain" static
 local-data: "myserver.mylocal.domain IN A 192.168.1.100"
 ```
 
-## Maintenance
+## Local Development
 
-### Update Containers
+For local testing without remote deployment:
 ```bash
-docker-compose pull
-docker-compose up -d
+# Start services locally
+./manage.sh start
+
+# Check status locally  
+./manage.sh status
+
+# Test DNS locally
+dig @127.0.0.1 google.com
 ```
-
-### Backup Configuration
-```bash
-tar -czf dns-backup-$(date +%Y%m%d).tar.gz docker-compose.yml unbound.conf
-```
-
-### Reset Cache
-```bash
-# Restart unbound to clear cache
-docker-compose restart unbound
-```
-
-## Ports Used
-
-- **53/TCP, 53/UDP**: DNS service (exposed to host)
-- **5353/UDP**: Cloudflared DoH proxy (internal only)
 
 ## Troubleshooting
 
-### Common Issues
+Use the deployment tools for troubleshooting:
+```bash
+# Check service status
+tools/dns.sh deploy status
 
-1. **Port 53 already in use**
-   ```bash
-   # Check what's using port 53
-   sudo netstat -tulpn | grep :53
-   
-   # Stop systemd-resolved if needed
-   sudo systemctl stop systemd-resolved
-   ```
+# View logs
+tools/dns.sh deploy logs
 
-2. **DNS not resolving**
-   ```bash
-   # Check container connectivity
-   docker exec unbound-resolver ping cloudflared-doh
-   
-   # Verify cloudflared is responding
-   docker exec cloudflared-doh nslookup google.com 127.0.0.1
-   ```
+# Test DNS performance
+tools/dns.sh deploy test
 
-3. **Slow DNS responses**
-   ```bash
-   # Check cache hit rates in logs
-   docker-compose logs unbound | grep cache
-   
-   # Increase cache sizes in unbound.conf
-   ```
+# SSH into remote server
+tools/dns.sh deploy ssh
+```
+
+Common issues are automatically handled by the deployment scripts.
 
 ## Security Considerations
 
