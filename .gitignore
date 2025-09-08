@@ -1,0 +1,30 @@
+# Logs
+*.log
+logs/
+
+# Backup files
+*.backup
+dns-backup-*.tar.gz
+
+# Docker volumes (if using bind mounts)
+data/
+volumes/
+
+# Environment overrides
+.env.local
+.env.override
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
